@@ -1,5 +1,3 @@
-from flask import Flask
-import threading
 import os
 from dotenv import load_dotenv
 from telegram.ext import (
@@ -7,24 +5,15 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
 )
-
 from utils import start, button_click_handler
 
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def index():
-    return "Telegram Bot is running!"
-
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
 def main():
-
     # Load environment variables from .env file
     load_dotenv()
 
     TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+    PORT = int(os.environ.get('PORT', 8443))
+    APP_URL = os.getenv('APP_URL')  # Your Heroku app URL
 
     """Start the bot."""
     application = ApplicationBuilder().token(TOKEN).build()
@@ -42,9 +31,13 @@ def main():
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
-    threading.Thread(target=run_flask).start()
-
-    application.run_polling()
+    # Start webhook
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"{APP_URL}/{TOKEN}"
+    )
 
 if __name__ == '__main__':
     main()
