@@ -21,12 +21,12 @@ def main():
 
     # Initialize machines
     application.bot_data['machines'] = {
-        'Ground Floor Washer': {'status': 'free'},
-        'Ground Floor Dryer': {'status': 'free'},
-        'Upper Floor Washer 1': {'status': 'free'},
-        'Upper Floor Washer 2': {'status': 'free'},
-        'Upper Floor Dryer 1': {'status': 'free'},
-        'Upper Floor Dryer 2': {'status': 'broken'},
+        'Ground Floor Washer 🌊': {'status': 'free'},
+        'Ground Floor Dryer ☀️ ': {'status': 'broken'},
+        'Upper Floor Washer 1️⃣ 🌊': {'status': 'free'},
+        'Upper Floor Washer 2️⃣ 🌊': {'status': 'free'},
+        'Upper Floor Dryer 1️⃣ ☀️': {'status': 'free'},
+        'Upper Floor Dryer 2️⃣ ☀️': {'status': 'broken'},
     }
 
     application.add_handler(CommandHandler('start', start))
