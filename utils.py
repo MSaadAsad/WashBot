@@ -19,6 +19,38 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+async def show_machine_statuses(chat_id, context):
+    """Display the current machine statuses."""
+    machines = context.bot_data['machines']
+    status_message = "⚙️ **Machine Statuses:**\n\n"
+    keyboard = []
+
+    # Build the status message and buttons
+    for machine_name, machine_info in machines.items():
+        status = machine_info['status']
+        if status == 'free':
+            status_message += f"✅ {machine_name}: Free \n"
+            keyboard.append([InlineKeyboardButton(f"Start {machine_name}", callback_data=f"start_{machine_name}")])
+        elif status == 'broken':
+            status_message += f"❌ {machine_name}: Broken\n"
+        elif status == 'occupied':
+            end_time = machine_info['end_time']
+            remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
+            if remaining_time <= 0:
+                remaining_time = 0
+            occupied_by = machine_info.get('username', 'someone')
+            status_message += f"⏳ {machine_name}: Occupied by @{occupied_by} for {remaining_time} more minutes\n"
+
+    # If no machines are available to start, show a message
+    if not any(machine['status'] == 'free' for machine in machines.values()):
+        keyboard = [[InlineKeyboardButton("No machines available", callback_data="no_action")]]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send or edit the message with the updated status
+    await context.bot.send_message(chat_id=chat_id, text=status_message, reply_markup=reply_markup)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message with an inline button to show machine status."""
     user = update.effective_user
@@ -62,6 +94,10 @@ async def free_machine(context: ContextTypes.DEFAULT_TYPE):
         )
         logger.info(f"Machine {machine_name} is now free. Notified user @{username}.")
 
+        # Show the updated machine statuses
+        await show_machine_statuses(user_id, context)
+
+
 async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button click."""
     query = update.callback_query
@@ -82,22 +118,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     if callback_data == 'show_status':
-        # Build the status message
-        machines = context.bot_data['machines']
-        status_message = "⚙️ Machine Statuses:\n\n"
-        for machine_name, machine_info in machines.items():
-            status = machine_info['status']
-            if status == 'free':
-                status_message += f"✅ {machine_name}: Free \n"
-            elif status == 'broken':
-                status_message += f"❌ {machine_name}: Broken\n"
-            elif status == 'occupied':
-                # Calculate remaining time
-                end_time = machine_info['end_time']
-                remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
-                if remaining_time <= 0:
-                    remaining_time = 0
-                status_message += f"⏳ {machine_name}: Occupied for {remaining_time} more minute(s)\n"
+        await show_machine_statuses(query.message.chat_id, context)
 
         # Provide buttons to start a machine
         keyboard = []
