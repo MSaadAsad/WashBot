@@ -13,7 +13,12 @@ def main():
 
     TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     PORT = int(os.environ.get('PORT', 8443))
-    APP_URL = os.getenv('APP_URL')  # Your Heroku app URL
+    
+    # Get the Heroku app name from environment variable
+    APP_NAME = os.getenv('HEROKU_APP_NAME')
+    
+    # Construct the webhook URL using the app name
+    WEBHOOK_URL = f"https://{APP_NAME}.herokuapp.com/{TOKEN}"
 
     """Start the bot."""
     application = ApplicationBuilder().token(TOKEN).build()
@@ -36,8 +41,9 @@ def main():
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
-        webhook_url=f"{APP_URL}/{TOKEN}"
+        webhook_url=WEBHOOK_URL
     )
 
 if __name__ == '__main__':
     main()
+    
