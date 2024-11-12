@@ -97,8 +97,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
                 if remaining_time <= 0:
                     remaining_time = 0
-                occupied_by = machine_info.get('username', 'someone')
-                status_message += f"⏳ {machine_name}: Occupied by @{occupied_by} for {remaining_time} more minutes\n"
+                status_message += f"⏳ {machine_name}: Occupied for {remaining_time} more minute(s)\n"
 
         # Provide buttons to start a machine
         keyboard = []
@@ -124,11 +123,10 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.message.reply_text(error_message)
             return
         if machine_info['status'] != 'free':
-            occupied_by = machine_info.get('username', 'someone')
             end_time = machine_info.get('end_time')
             if end_time:
                 end_time_str = end_time.strftime('%H:%M')
-                error_message = f"⚠️ {machine_name} is currently occupied by @{occupied_by} until {end_time_str}."
+                error_message = f"⚠️ {machine_name} is currently occupied until {end_time_str}."
             else:
                 error_message = f"⚠️ {machine_name} is currently occupied."
             await query.edit_message_text(text=error_message)
@@ -165,16 +163,16 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         # Send a confirmation message back to the user
-        confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minutes ⏳"
+        confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minute(s) ⏳"
         await query.edit_message_text(text=confirmation_message)
-        await query.message.reply_text(confirmation_message)
+        #await query.message.reply_text(confirmation_message)
 
         # Log the action
-        logger.info(f"Started {machine_name} for {duration_minutes} minutes.")
+        logger.info(f"Started {machine_name} for {duration_minutes} minute(s).")
 
     elif callback_data == 'no_action':
         await query.answer()
     else:
         error_message = "Unknown action."
         await query.edit_message_text(text=error_message)
-        await query.message.reply_text(error_message)
+        #await query.message.reply_text(error_message)
