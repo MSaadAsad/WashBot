@@ -6,33 +6,39 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-from utils import start, button_click_handler
+from utils import (
+    start,
+    button_click_handler,
+    load_machine_states,
+)
 
 
 def main():
-
+    """Start the bot."""
     # Load environment variables from .env file
     load_dotenv()
 
     TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
-    """Start the bot."""
-    application = ApplicationBuilder().token(TOKEN).build()
+    # Initialize application
+    application = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .concurrent_updates(True)
+        .build()
+    )
 
-    # Initialize machines
-    application.bot_data['machines'] = {
-        'Ground Floor Washer': {'status': 'free'},
-        'Ground Floor Dryer': {'status': 'free'},
-        'Upper Floor Washer 1': {'status': 'free'},
-        'Upper Floor Washer 2': {'status': 'free'},
-        'Upper Floor Dryer 1': {'status': 'free'},
-        'Upper Floor Dryer 2': {'status': 'broken'},
-    }
+    # Initialize machines from saved state or defaults
+    application.bot_data['machines'] = load_machine_states()
 
+    # Add handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
-    application.run_polling()
+    # Start the bot
+    print("🚀 Starting bot...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()
