@@ -135,8 +135,8 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Define machine durations
         duration_map = {
-            'Washer': 0.3,  # minutes
-            'Dryer': 0.4,
+            'Washer': 25,  # minutes
+            'Dryer': 60,
         }
 
         # Determine machine type and duration
@@ -204,7 +204,7 @@ async def free_machine(context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
 
-            delete_delay = 10  # For example, 30 seconds
+            delete_delay = 24*60*60  # For example, 30 seconds
 
             # Wait for the specified delay
             await asyncio.sleep(delete_delay)
