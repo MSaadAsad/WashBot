@@ -120,9 +120,10 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if machine_info is None:
             error_message = "⚠️ Invalid machine selected."
             await query.edit_message_text(text=error_message)
-            await query.message.reply_text(error_message)
+
             return
         if machine_info['status'] != 'free':
+            occupied_by = machine_info.get('username', 'someone')
             end_time = machine_info.get('end_time')
             if end_time:
                 end_time_str = end_time.strftime('%H:%M')
@@ -130,7 +131,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             else:
                 error_message = f"⚠️ {machine_name} is currently occupied."
             await query.edit_message_text(text=error_message)
-            await query.message.reply_text(error_message)
+
             return
 
         # Determine duration based on machine type
@@ -141,7 +142,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             error_message = "⚠️ Unknown machine type."
             await query.edit_message_text(text=error_message)
-            await query.message.reply_text(error_message)
+
             return
 
         end_time = datetime.datetime.now() + datetime.timedelta(minutes=duration_minutes)
@@ -163,16 +164,36 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         # Send a confirmation message back to the user
-        confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minute(s) ⏳"
+        confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minutes ⏳"
         await query.edit_message_text(text=confirmation_message)
-        #await query.message.reply_text(confirmation_message)
+        await query.message.reply_text(confirmation_message)
 
         # Log the action
-        logger.info(f"Started {machine_name} for {duration_minutes} minute(s).")
+        logger.info(f"Started {machine_name} for {duration_minutes} minutes.")
 
-    elif callback_data == 'no_action':
-        await query.answer()
-    else:
-        error_message = "Unknown action."
-        await query.edit_message_text(text=error_message)
-        #await query.message.reply_text(error_message)
+        # Show the updated machine statuses
+        status_message = "⚙️ Machine Statuses:\n\n"
+        keyboard = []
+        for machine_name, machine_info in machines.items():
+            status = machine_info['status']
+            if status == 'free':
+                status_message += f"✅ {machine_name}: Free \n"
+                keyboard.append([InlineKeyboardButton(f"Start {machine_name}", callback_data=f"start_{machine_name}")])
+            elif status == 'broken':
+                status_message += f"❌ {machine_name}: Broken\n"
+            elif status == 'occupied':
+                end_time = machine_info['end_time']
+                remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
+                if remaining_time <= 0:
+                    remaining_time = 0
+                occupied_by = machine_info.get('username', 'someone')
+                status_message += f"⏳ {machine_name}: Occupied by @{occupied_by} for {remaining_time} more minutes\n"
+    
+        # If no machines are available to start, show a message
+        if not keyboard:
+            keyboard = [[InlineKeyboardButton("No machines available", callback_data="no_action")]]
+    
+        reply_markup = InlineKeyboardMarkup(keyboard)
+    
+        # Edit the message to display the updated status
+        await query.message.reply_text(text=status_message, reply_markup=reply_markup)
