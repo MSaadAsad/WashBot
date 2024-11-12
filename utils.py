@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 async def show_machine_statuses(chat_id, context):
     """Display the current machine statuses."""
     machines = context.bot_data['machines']
-    status_message = "⚙️ **Machine Statuses:**\n\n"
+    status_message = "⚙️ Machine Statuses:\n\n"
     keyboard = []
 
     # Build the status message and buttons
@@ -38,8 +38,7 @@ async def show_machine_statuses(chat_id, context):
             remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
             if remaining_time <= 0:
                 remaining_time = 0
-            occupied_by = machine_info.get('username', 'someone')
-            status_message += f"⏳ {machine_name}: Occupied by @{occupied_by} for {remaining_time} more minutes\n"
+            status_message += f"⏳ {machine_name}: Occupied for {remaining_time} more minutes\n"
 
     # If no machines are available to start, show a message
     if not any(machine['status'] == 'free' for machine in machines.values()):
@@ -55,9 +54,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a message with an inline button to show machine status."""
     user = update.effective_user
     username = user.username
-
-    # Log the username
-    logger.info(f"User @{username} initiated the /start command.")
 
     # Check if user is authorized
     if username not in AUTHORIZED_USERS:
@@ -105,9 +101,6 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     username = user.username
     callback_data = query.data
 
-    # Log the username and action
-    logger.info(f"User @{username} clicked button with data '{callback_data}'.")
-
     # Check if user is authorized
     if username not in AUTHORIZED_USERS:
         await query.answer()
@@ -144,11 +137,10 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
             return
         if machine_info['status'] != 'free':
-            occupied_by = machine_info.get('username', 'someone')
             end_time = machine_info.get('end_time')
             if end_time:
                 end_time_str = end_time.strftime('%H:%M')
-                error_message = f"⚠️ {machine_name} is currently occupied until {end_time_str}."
+                error_message = f"⚠️ {machine_name} is currently occupied until {end_time_str}. ⏳"
             else:
                 error_message = f"⚠️ {machine_name} is currently occupied."
             await query.edit_message_text(text=error_message)
@@ -176,7 +168,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         job_queue = context.job_queue
         job_queue.run_once(
             free_machine,
-            duration_minutes * 60,
+            duration_minutes * 20,
             data={
                 'machine_name': machine_name,
                 'user_id': user.id,
@@ -187,7 +179,6 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         # Send a confirmation message back to the user
         confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minutes ⏳"
         await query.edit_message_text(text=confirmation_message)
-        await query.message.reply_text(confirmation_message)
 
         # Log the action
         logger.info(f"Started {machine_name} for {duration_minutes} minutes.")
@@ -207,8 +198,7 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
                 if remaining_time <= 0:
                     remaining_time = 0
-                occupied_by = machine_info.get('username', 'someone')
-                status_message += f"⏳ {machine_name}: Occupied by @{occupied_by} for {remaining_time} more minutes\n"
+                status_message += f"{machine_name}: Occupied for {remaining_time} more minutes ⏳\n"
     
         # If no machines are available to start, show a message
         if not keyboard:
