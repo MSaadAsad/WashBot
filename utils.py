@@ -2,173 +2,163 @@ import os
 import logging
 import datetime
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     ContextTypes,
 )
+import asyncio
 
+# Load environment variables
 load_dotenv()
 
-AUTHORIZED_USERS = os.getenv('AUTHORIZED_USERS').split(',')
+AUTHORIZED_USERS = os.getenv('AUTHORIZED_USERS', '').split(',')
 
-# Enable logging
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-
 logger = logging.getLogger(__name__)
 
-async def show_machine_statuses(chat_id, context):
-    """Display the current machine statuses."""
-    machines = context.bot_data['machines']
-    status_message = "⚙️ Machine Statuses:\n\n"
-    keyboard = []
-
-    # Build the status message and buttons
-    for machine_name, machine_info in machines.items():
-        status = machine_info['status']
-        if status == 'free':
-            status_message += f"✅ {machine_name}: Free \n"
-            keyboard.append([InlineKeyboardButton(f"Start {machine_name}", callback_data=f"start_{machine_name}")])
-        elif status == 'broken':
-            status_message += f"❌ {machine_name}: Broken\n"
-        elif status == 'occupied':
-            end_time = machine_info['end_time']
-            remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
-            if remaining_time <= 0:
-                remaining_time = 0
-            status_message += f"⏳ {machine_name}: Occupied for {remaining_time} more minutes\n"
-
-    # If no machines are available to start, show a message
-    if not any(machine['status'] == 'free' for machine in machines.values()):
-        keyboard = [[InlineKeyboardButton("No machines available", callback_data="no_action")]]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Send or edit the message with the updated status
-    await context.bot.send_message(chat_id=chat_id, text=status_message, reply_markup=reply_markup)
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a message with an inline button to show machine status."""
+    """Handle the /start command."""
     user = update.effective_user
     username = user.username
 
-    # Check if user is authorized
     if username not in AUTHORIZED_USERS:
-        await update.message.reply_text("Access Denied.")
+        await update.message.reply_text("❌ *Access Denied.*")
         logger.warning(f"Unauthorized access attempt by @{username}.")
         return
 
     keyboard = [
-        [InlineKeyboardButton("Show Machine Status", callback_data='show_status')]
+        [InlineKeyboardButton("📊 Show Machine Statuses", callback_data='show_status')]
     ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    welcome_message = (
+        f"👋 *Welcome, @{username}!*\n\n"
+        "Please choose an option below to manage the machines."
+    )
+
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+
+async def show_machine_statuses(chat_id, context: ContextTypes.DEFAULT_TYPE, message=None):
+    """Display the current machine statuses with improved UI.
+    
+    If 'message' is provided, edit that message. Otherwise, send a new one.
+    """
+    machines = context.bot_data.get('machines', {})
+    status_lines = []
+    keyboard = []
+
+    for machine, info in machines.items():
+        status = info.get('status', 'unknown').lower()
+        if status == 'free':
+            status_lines.append(f"✅ *{machine}*: Free")
+            keyboard.append([InlineKeyboardButton(f"▶️ Start {machine}", callback_data=f"start_{machine}")])
+        elif status == 'occupied':
+            end_time = info.get('end_time')
+            remaining = (end_time - datetime.datetime.now()).total_seconds() / 60 if end_time else 0
+            remaining = max(int(remaining), 0)
+            status_lines.append(f"⏳ *{machine}*: Occupied ({remaining} min left)")
+        elif status == 'broken':
+            status_lines.append(f"❌ *{machine}*: Broken")
+
+    status_message = "⚙️ *Machine Statuses:*\n\n" + "\n".join(status_lines)
+
+    # Add a refresh button
+    keyboard.append([InlineKeyboardButton("🔄 Refresh Status", callback_data="refresh_status")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text('Welcome! Please choose an option:', reply_markup=reply_markup)
-
-async def free_machine(context: ContextTypes.DEFAULT_TYPE):
-    """Free the machine and notify the user when the cycle is complete."""
-    job = context.job
-    machine_name = job.data['machine_name']
-    user_id = job.data['user_id']
-    username = job.data['username']
-    machines = context.bot_data['machines']
-    machine_info = machines.get(machine_name)
-    if machine_info:
-        machine_info['status'] = 'free'
-        machine_info.pop('end_time', None)
-        machine_info.pop('user_id', None)
-        machine_info.pop('username', None)
-
-        # Send a message to the user
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"{machine_name} is now free. Your cycle is complete."
+    if message:
+        # Edit the existing message
+        await message.edit_text(
+            text=status_message,
+            reply_markup=reply_markup,
         )
-        logger.info(f"Machine {machine_name} is now free. Notified user @{username}.")
-
-        # Show the updated machine statuses
-        await show_machine_statuses(user_id, context)
-
+    else:
+        # Send a new message
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=status_message,
+            reply_markup=reply_markup,
+        )
 
 async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button click."""
+    """Handle all button clicks."""
     query = update.callback_query
+    await query.answer()
     user = query.from_user
     username = user.username
     callback_data = query.data
 
-    # Check if user is authorized
     if username not in AUTHORIZED_USERS:
-        await query.answer()
-        await query.edit_message_text(text="Access Denied.")
+        await query.edit_message_text("❌ *Access Denied.*")
         logger.warning(f"Unauthorized button click by @{username}.")
         return
 
-    await query.answer()
-
-    if callback_data == 'show_status':
-        await show_machine_statuses(query.message.chat_id, context)
-
-        # Provide buttons to start a machine
-        keyboard = []
-        for machine_name, machine_info in machines.items():
-            if machine_info['status'] == 'free':
-                # Add a button to start this machine
-                keyboard.append([InlineKeyboardButton(f"Start {machine_name}", callback_data=f"start_{machine_name}")])
-        if not keyboard:
-            keyboard = [[InlineKeyboardButton("No machines available", callback_data="no_action")]]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(text=status_message, reply_markup=reply_markup)
+    if callback_data == 'show_status' or callback_data == 'refresh_status':
+        # Pass the current message to edit it instead of sending a new one
+        await show_machine_statuses(
+            chat_id=query.message.chat_id,
+            context=context,
+            message=query.message
+        )
 
     elif callback_data.startswith('start_'):
-        # User wants to start a machine
-        machine_name = callback_data[len('start_'):]
-        machines = context.bot_data['machines']
-        machine_info = machines.get(machine_name)
-        if machine_info is None:
-            error_message = "⚠️ Invalid machine selected."
-            await query.edit_message_text(text=error_message)
+        machine_name = callback_data.split('start_')[1]
+        machines = context.bot_data.setdefault('machines', {})
+        machine = machines.get(machine_name)
 
+        if not machine:
+            await query.edit_message_text("⚠️ *Selected machine does not exist.*")
             return
-        if machine_info['status'] != 'free':
-            end_time = machine_info.get('end_time')
-            if end_time:
-                end_time_str = end_time.strftime('%H:%M')
-                error_message = f"⚠️ {machine_name} is currently occupied until {end_time_str}. ⏳"
+
+        if machine['status'] != 'free':
+            status = machine['status']
+            if status == 'occupied':
+                end_time = machine.get('end_time')
+                remaining = (end_time - datetime.datetime.now()).total_seconds() / 60 if end_time else 0
+                remaining = max(int(remaining), 0)
+                message = f"⏳ *{machine_name}* is currently occupied for another *{remaining} minutes*."
             else:
-                error_message = f"⚠️ {machine_name} is currently occupied."
-            await query.edit_message_text(text=error_message)
-
+                message = f"❌ *{machine_name}* is currently *{status}*."
+            await query.edit_message_text(message)
             return
 
-        # Determine duration based on machine type
-        if 'Washer' in machine_name:
-            duration_minutes = 2  # Adjust the duration as needed
-        elif 'Dryer' in machine_name:
-            duration_minutes = 3  # Adjust the duration as needed
-        else:
-            error_message = "⚠️ Unknown machine type."
-            await query.edit_message_text(text=error_message)
+        # Define machine durations
+        duration_map = {
+            'Washer': 0.3,  # minutes
+            'Dryer': 0.4,
+        }
 
-            return
+        # Determine machine type and duration
+        machine_type = 'Unknown'
+        for key in duration_map.keys():
+            if key.lower() in machine_name.lower():
+                machine_type = key
+                break
 
-        end_time = datetime.datetime.now() + datetime.timedelta(minutes=duration_minutes)
-        machine_info['status'] = 'occupied'
-        machine_info['end_time'] = end_time
-        machine_info['user_id'] = user.id
-        machine_info['username'] = username
+        duration = duration_map.get(machine_type, 2)  # default to 2 minutes
 
-        # Schedule a job to free the machine and notify the user
-        job_queue = context.job_queue
-        job_queue.run_once(
+        # Update machine status
+        end_time = datetime.datetime.now() + datetime.timedelta(minutes=duration)
+        machines[machine_name] = {
+            'status': 'occupied',
+            'end_time': end_time,
+            'user_id': user.id,
+            'username': username
+        }
+
+        # Schedule job to free the machine
+        context.job_queue.run_once(
             free_machine,
-            duration_minutes * 20,
+            when=duration * 60,  # convert minutes to seconds
             data={
                 'machine_name': machine_name,
                 'user_id': user.id,
@@ -176,35 +166,52 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             }
         )
 
-        # Send a confirmation message back to the user
-        confirmation_message = f"✅ You have started {machine_name}. It will be occupied for {duration_minutes} minutes ⏳"
-        await query.edit_message_text(text=confirmation_message)
+        confirmation = (
+            f"✅ *{machine_name}* has been started.\n"
+            f"🕒 It will be free in *{duration} minutes*."
+        )
+        await query.edit_message_text(confirmation)
+        logger.info(f"Started {machine_name} for @{username} for {duration} minutes.")
 
-        # Log the action
-        logger.info(f"Started {machine_name} for {duration_minutes} minutes.")
+        # Update the statuses immediately by editing the same message
+        await show_machine_statuses(
+            chat_id=query.message.chat_id,
+            context=context,
+            message=query.message
+        )
 
-        # Show the updated machine statuses
-        status_message = "⚙️ Machine Statuses:\n\n"
-        keyboard = []
-        for machine_name, machine_info in machines.items():
-            status = machine_info['status']
-            if status == 'free':
-                status_message += f"✅ {machine_name}: Free \n"
-                keyboard.append([InlineKeyboardButton(f"Start {machine_name}", callback_data=f"start_{machine_name}")])
-            elif status == 'broken':
-                status_message += f"❌ {machine_name}: Broken\n"
-            elif status == 'occupied':
-                end_time = machine_info['end_time']
-                remaining_time = int((end_time - datetime.datetime.now()).total_seconds() / 60)
-                if remaining_time <= 0:
-                    remaining_time = 0
-                status_message += f"{machine_name}: Occupied for {remaining_time} more minutes ⏳\n"
-    
-        # If no machines are available to start, show a message
-        if not keyboard:
-            keyboard = [[InlineKeyboardButton("No machines available", callback_data="no_action")]]
-    
-        reply_markup = InlineKeyboardMarkup(keyboard)
-    
-        # Edit the message to display the updated status
-        await query.message.reply_text(text=status_message, reply_markup=reply_markup)
+async def free_machine(context: ContextTypes.DEFAULT_TYPE):
+    """Free the machine and notify the user, then delete the notification after a delay."""
+    job_data = context.job.data
+    machine_name = job_data['machine_name']
+    user_id = job_data['user_id']
+    username = job_data['username']
+
+    machines = context.bot_data.get('machines', {})
+    machine = machines.get(machine_name)
+
+    if machine and machine['status'] == 'occupied':
+        machines[machine_name] = {'status': 'free'}
+        logger.info(f"Machine {machine_name} is now free. Notified @{username}.")
+
+        try:
+            # Send the notification message and capture the Message object
+            notification = await context.bot.send_message(
+                chat_id=user_id,
+                text=f"🎉 *{machine_name}* is now free. Your cycle is complete.",
+            )
+
+            delete_delay = 10  # For example, 30 seconds
+
+            # Wait for the specified delay
+            await asyncio.sleep(delete_delay)
+
+            # Attempt to delete the message
+            await context.bot.delete_message(
+                chat_id=user_id,
+                message_id=notification.message_id
+            )
+            logger.info(f"Deleted notification message for @{username} after {delete_delay} seconds.")
+
+        except Exception as e:
+            logger.error(f"Failed to send or delete notification for @{username}: {e}")
