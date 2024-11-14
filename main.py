@@ -5,7 +5,11 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
 )
-from utils import start, button_click_handler
+from utils import (
+    start, 
+    button_click_handler, 
+    get_status_modification_handler
+)
 
 def main():
     # Configure logging
@@ -37,8 +41,9 @@ def main():
         'Upper Floor Dryer 2️⃣ ☀️': {'status': 'broken'},
     }
 
-    # Add handlers
-    application.add_handler(CommandHandler('start', start))
+    # Register handlers
+    application.add_handler(get_status_modification_handler())
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
     logger.info("Handlers added. Starting polling...")
