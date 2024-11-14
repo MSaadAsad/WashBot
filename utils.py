@@ -11,8 +11,6 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     CallbackQueryHandler,
-    MessageHandler,
-    filters,
 )
 import asyncio
 from airtable_logger import log_action
@@ -171,18 +169,39 @@ async def handle_unavailable_machine(query, machine_name, machine):
 
 async def set_machine_occupied(query, context, machine_name, duration, username):
     """Set a machine as occupied."""
-    context.bot_data['machines'][machine_name] = {
-        'status': 'occupied',
-        'user_id': query.from_user.id,
-        'username': username,
-        'start_time': datetime.datetime.now(),
-        'duration': duration
-    }
-    
-    airtable_machine_name = MACHINE_MAP.get(machine_name, machine_name)
-    log_action(username, "Start Cycle", airtable_machine_name, duration)
-    
-    logger.info(f"Started {machine_name} for @{username} for {duration} minutes.")
+    try:
+        end_time = datetime.datetime.now() + datetime.timedelta(minutes=duration)
+        context.bot_data['machines'][machine_name] = {
+            'status': 'occupied',
+            'user_id': query.from_user.id,
+            'username': username,
+            'start_time': datetime.datetime.now(),
+            'end_time': end_time,
+            'duration': duration
+        }
+        
+        # Schedule the machine to be freed
+        context.job_queue.run_once(
+            free_machine,
+            when=duration * 60,
+            data={
+                'machine_name': machine_name,
+                'user_id': query.from_user.id,
+                'username': username
+            }
+        )
+        
+        airtable_machine_name = MACHINE_MAP.get(machine_name, machine_name)
+        log_action(username, "Start Cycle", airtable_machine_name, duration)
+        
+        logger.info(f"Started {machine_name} for @{username} for {duration} minutes.")
+
+        # Add this line to refresh the status display
+        await show_machine_statuses(query.message.chat_id, context, query.message)
+
+    except Exception as e:
+        logger.error(f"Error setting machine occupied: {e}")
+        await query.edit_message_text("⚠️ An error occurred. Please try again.", parse_mode="HTML")
 
 async def free_machine(context: ContextTypes.DEFAULT_TYPE):
     """Free the machine and notify the user."""
@@ -208,7 +227,7 @@ async def free_machine(context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
 
-            await asyncio.sleep(10)
+            await asyncio.sleep(24 * 60 * 60)
             await context.bot.delete_message(chat_id=user_id, message_id=notification.message_id)
             logger.info(f"Deleted notification message for @{username} after 10 seconds.")
 
@@ -318,15 +337,17 @@ async def handle_status_selection(update: Update, context: ContextTypes.DEFAULT_
                 'status': 'occupied',
                 'end_time': end_time,
                 'user_id': query.from_user.id,
-                'username': username
+                'username': username,
+                'duration': duration,
+                'start_time': datetime.datetime.now()
             }
             
             log_action(username, "Set Cycle", airtable_machine_name, duration)
             
-            # Schedule the machine to be freed
+            # Schedule the machine to be freed (convert minutes to seconds)
             context.job_queue.run_once(
                 free_machine,
-                when=duration,  # Now in seconds instead of minutes
+                when=duration * 60,  # Convert minutes to seconds
                 data={
                     'machine_name': machine_name,
                     'user_id': query.from_user.id,
@@ -339,6 +360,7 @@ async def handle_status_selection(update: Update, context: ContextTypes.DEFAULT_
                 parse_mode="HTML"
             )
             
+            # Add this line to refresh the status display
             await show_machine_statuses(query.message.chat_id, context, query.message)
             return ConversationHandler.END
             
