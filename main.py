@@ -33,16 +33,16 @@ def main():
 
     # Initialize machines
     application.bot_data['machines'] = {
-        'Ground Floor Washer 🌊': {'status': 'broken'},
-        'Ground Floor Dryer ☀️ ': {'status': 'broken'},
-        'Upper Floor Washer 1️⃣ 🌊': {'status': 'available'},
-        'Upper Floor Washer 2️⃣ 🌊': {'status': 'available'},
-        'Upper Floor Dryer 1️⃣ ☀️': {'status': 'available'},
-        'Upper Floor Dryer 2️⃣ ☀️': {'status': 'available'},
+        'Ground Floor Washer 🌊': {'status': 'free'},
+        'Ground Floor Dryer ☀️': {'status': 'free'},
+        'Upper Floor Washer 1️⃣ 🌊': {'status': 'free'},
+        'Upper Floor Washer 2️⃣ 🌊': {'status': 'free'},
+        'Upper Floor Dryer 1️⃣ ☀️': {'status': 'free'},
+        'Upper Floor Dryer 2️⃣ ☀️': {'status': 'free'}
     }
 
     # Register handlers
-    application.add_handler(get_status_modification_handler())
+    application.add_handler(get_status_modification_handler())  # This should come first
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_click_handler))
 
