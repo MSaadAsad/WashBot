@@ -15,6 +15,8 @@ from telegram.ext import (
     filters,
 )
 import asyncio
+from airtable_logger import log_action
+import telegram
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +26,15 @@ AUTHORIZED_USERS = os.getenv('AUTHORIZED_USERS', '').split(',')
 SELECTING_MACHINE = 1
 SELECTING_STATUS = 2
 ENTERING_TIME = 3
+MACHINE_MAP = {
+    'Ground Floor Washer 🌊': 'Ground Floor Wash',
+    'Ground Floor Dryer ☀️': 'Ground Floor Dry',
+    'Upper Floor Washer 1️⃣ 🌊': 'Floor 1 Wash 1',
+    'Upper Floor Washer 2️⃣ 🌊': 'Floor 1 Wash 2',
+    'Upper Floor Dryer 1️⃣ ☀️': 'Floor 1 Dry 1',
+    'Upper Floor Dryer 2️⃣ ☀️': 'Floor 1 Dry 2',
+    'None': 'None'
+}
 
 # Configure logging
 logging.basicConfig(
@@ -79,7 +90,13 @@ async def show_machine_statuses(chat_id, context: ContextTypes.DEFAULT_TYPE, mes
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if message:
-        await message.edit_text(text=status_message, reply_markup=reply_markup, parse_mode="HTML")
+        try:
+            await message.edit_text(text=status_message, reply_markup=reply_markup, parse_mode="HTML")
+        except telegram.error.BadRequest as e:
+            if "Message is not modified" in str(e):
+                pass
+            else:
+                raise
     else:
         await context.bot.send_message(chat_id=chat_id, text=status_message, reply_markup=reply_markup, parse_mode="HTML")
 
@@ -97,6 +114,9 @@ async def button_click_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if callback_data in ['show_status', 'refresh_status']:
+        # Log refresh status action with "None" as string instead of None
+        if callback_data == 'refresh_status':
+            log_action(username, "Refresh Status", "None")
         await show_machine_statuses(query.message.chat_id, context, query.message)
         return
     
@@ -122,7 +142,11 @@ async def handle_machine_start(query, context: ContextTypes.DEFAULT_TYPE, user):
         return
 
     duration = get_machine_duration(machine_name)
-    await set_machine_occupied(query, context, machine_name, duration, user)
+    await set_machine_occupied(query, context, machine_name, duration, user.username)
+    
+    # Remove this logging since it's now in set_machine_occupied
+    # airtable_machine_name = MACHINE_MAP.get(machine_name, machine_name)
+    # log_action(user.username, "Start Cycle", airtable_machine_name, duration)
 
 def get_machine_duration(machine_name):
     """Get the duration for a machine type."""
@@ -145,34 +169,20 @@ async def handle_unavailable_machine(query, machine_name, machine):
         message = f" <b>{machine_name}</b> is currently <b>{status}</b>."
     await query.edit_message_text(message, parse_mode="HTML")
 
-async def set_machine_occupied(query, context, machine_name, duration, user):
+async def set_machine_occupied(query, context, machine_name, duration, username):
     """Set a machine as occupied."""
-    end_time = datetime.datetime.now() + datetime.timedelta(minutes=duration)
     context.bot_data['machines'][machine_name] = {
         'status': 'occupied',
-        'end_time': end_time,
-        'user_id': user.id,
-        'username': user.username
+        'user_id': query.from_user.id,
+        'username': username,
+        'start_time': datetime.datetime.now(),
+        'duration': duration
     }
-
-    context.job_queue.run_once(
-        free_machine,
-        when=duration * 60,
-        data={
-            'machine_name': machine_name,
-            'user_id': user.id,
-            'username': user.username
-        }
-    )
-
-    confirmation = (
-        f"✅ <b>{machine_name}</b> has been started.\n"
-        f"🕒 It will be free in <b>{duration} minutes</b>."
-    )
-    await query.edit_message_text(confirmation, parse_mode="HTML")
-    logger.info(f"Started {machine_name} for @{user.username} for {duration} minutes.")
     
-    await show_machine_statuses(query.message.chat_id, context, query.message)
+    airtable_machine_name = MACHINE_MAP.get(machine_name, machine_name)
+    log_action(username, "Start Cycle", airtable_machine_name, duration)
+    
+    logger.info(f"Started {machine_name} for @{username} for {duration} minutes.")
 
 async def free_machine(context: ContextTypes.DEFAULT_TYPE):
     """Free the machine and notify the user."""
@@ -187,6 +197,9 @@ async def free_machine(context: ContextTypes.DEFAULT_TYPE):
     if machine and machine['status'] == 'occupied':
         machines[machine_name] = {'status': 'free'}
         logger.info(f"Machine {machine_name} is now free. Notified @{username}.")
+        
+        airtable_machine_name = MACHINE_MAP.get(machine_name, machine_name)
+        log_action(username, "Set Free", airtable_machine_name)
 
         try:
             notification = await context.bot.send_message(
@@ -195,7 +208,7 @@ async def free_machine(context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
 
-            await asyncio.sleep(24*60*60)
+            await asyncio.sleep(10)
             await context.bot.delete_message(chat_id=user_id, message_id=notification.message_id)
             logger.info(f"Deleted notification message for @{username} after 10 seconds.")
 
@@ -280,15 +293,19 @@ async def handle_status_selection(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     
     machine_name = context.user_data.get('selected_machine')
+    username = query.from_user.username
     action = query.data
+    airtable_machine_name = MACHINE_MAP.get(machine_name)
     
     if action == "set_status_free":
         context.bot_data['machines'][machine_name] = {'status': 'free'}
+        log_action(username, "Set Free", airtable_machine_name)
         await show_machine_statuses(query.message.chat_id, context, query.message)
         return ConversationHandler.END
     
     elif action == "set_status_broken":
         context.bot_data['machines'][machine_name] = {'status': 'broken'}
+        log_action(username, "Set Broken", airtable_machine_name)
         await show_machine_statuses(query.message.chat_id, context, query.message)
         return ConversationHandler.END
     
@@ -301,21 +318,22 @@ async def handle_status_selection(update: Update, context: ContextTypes.DEFAULT_
                 'status': 'occupied',
                 'end_time': end_time,
                 'user_id': query.from_user.id,
-                'username': query.from_user.username
+                'username': username
             }
+            
+            log_action(username, "Set Cycle", airtable_machine_name, duration)
             
             # Schedule the machine to be freed
             context.job_queue.run_once(
                 free_machine,
-                when=duration * 60,
+                when=duration,  # Now in seconds instead of minutes
                 data={
                     'machine_name': machine_name,
                     'user_id': query.from_user.id,
-                    'username': query.from_user.username
+                    'username': username
                 }
             )
             
-            # Show confirmation and update status
             await query.edit_message_text(
                 f"✅ Set <b>{machine_name}</b> as occupied for {duration} minutes.",
                 parse_mode="HTML"
@@ -352,7 +370,7 @@ def get_status_modification_handler():
             ],
             SELECTING_STATUS: [
                 CallbackQueryHandler(handle_status_selection, pattern="^set_status_"),
-                CallbackQueryHandler(handle_status_selection, pattern="^set_time_"),  # Make sure this pattern matches
+                CallbackQueryHandler(handle_status_selection, pattern="^set_time_"),
                 CallbackQueryHandler(show_machine_selection, pattern="^modify_status$")
             ]
         },
