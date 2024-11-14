@@ -33,12 +33,12 @@ def main():
 
     # Initialize machines
     application.bot_data['machines'] = {
-        'Ground Floor Washer 🌊': {'status': 'free'},
+        'Ground Floor Washer 🌊': {'status': 'broken'},
         'Ground Floor Dryer ☀️ ': {'status': 'broken'},
-        'Upper Floor Washer 1️⃣ 🌊': {'status': 'free'},
-        'Upper Floor Washer 2️⃣ 🌊': {'status': 'broken'},
-        'Upper Floor Dryer 1️⃣ ☀️': {'status': 'free'},
-        'Upper Floor Dryer 2️⃣ ☀️': {'status': 'broken'},
+        'Upper Floor Washer 1️⃣ 🌊': {'status': 'available'},
+        'Upper Floor Washer 2️⃣ 🌊': {'status': 'available'},
+        'Upper Floor Dryer 1️⃣ ☀️': {'status': 'available'},
+        'Upper Floor Dryer 2️⃣ ☀️': {'status': 'available'},
     }
 
     # Register handlers
